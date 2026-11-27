@@ -8,7 +8,10 @@
    *   scene: string,
    *   style: string,
    *   pays: string,
-   *   tri: 'affiche' | 'nom',
+   *   nonNote: boolean,
+   *   coupsDeCoeur: boolean,
+   *   commente: boolean,
+   *   tri: 'affiche' | 'nom' | 'note',
    *   vue: 'cartes' | 'tableau',
    *   styles: string[],
    *   listePays: { code: string, nom: string }[],
@@ -23,6 +26,9 @@
     scene = $bindable(''),
     style = $bindable(''),
     pays = $bindable(''),
+    nonNote = $bindable(false),
+    coupsDeCoeur = $bindable(false),
+    commente = $bindable(false),
     tri = $bindable('affiche'),
     vue = $bindable('cartes'),
     styles,
@@ -34,7 +40,10 @@
 
   let filtresOuverts = $state(false);
 
-  const nbFiltresActifs = $derived([jour, scene, style, pays].filter(Boolean).length);
+  const nbFiltresActifs = $derived(
+    [jour, scene, style, pays].filter(Boolean).length +
+      [nonNote, coupsDeCoeur, commente].filter(Boolean).length
+  );
   const aDesFiltres = $derived(Boolean(recherche.trim() || nbFiltresActifs > 0));
 </script>
 
@@ -54,8 +63,8 @@
         <input
           type="search"
           bind:value={recherche}
-          placeholder="Rechercher un groupe, un style, un pays, une scène..."
-          aria-label="Rechercher un groupe, un style, un pays ou une scène"
+          placeholder="Rechercher un groupe, un style, un pays, un commentaire..."
+          aria-label="Rechercher un groupe, un style, un pays ou un commentaire"
         />
         {#if recherche}
           <button
@@ -95,6 +104,7 @@
         <select id="select-tri" bind:value={tri} class="champ-select select-tri">
           <option value="affiche">Tri : Ordre de l'affiche</option>
           <option value="nom">Tri : Nom (A → Z)</option>
+          <option value="note">Tri : Ma note (↓)</option>
         </select>
 
         <div class="bascule-vue" role="group" aria-label="Mode d'affichage">
@@ -151,7 +161,38 @@
       </select>
     </div>
 
-    <!-- Ligne 3 : Compteur + Réinitialiser -->
+    <!-- Ligne 3 : Chips de filtres rapides combinables -->
+    <div class="chips-ligne" class:ouvert={filtresOuverts}>
+      <button
+        type="button"
+        class="chip"
+        class:actif={nonNote}
+        aria-pressed={nonNote}
+        onclick={() => (nonNote = !nonNote)}
+      >
+        Pas encore noté
+      </button>
+      <button
+        type="button"
+        class="chip"
+        class:actif={coupsDeCoeur}
+        aria-pressed={coupsDeCoeur}
+        onclick={() => (coupsDeCoeur = !coupsDeCoeur)}
+      >
+        ♥ Mes coups de cœur
+      </button>
+      <button
+        type="button"
+        class="chip"
+        class:actif={commente}
+        aria-pressed={commente}
+        onclick={() => (commente = !commente)}
+      >
+        💬 Commenté
+      </button>
+    </div>
+
+    <!-- Ligne 4 : Compteur + Réinitialiser -->
     <div class="ligne-statut">
       <span class="compteur">
         <strong>{nbResultats}</strong> / {total} {nbResultats > 1 ? 'groupes' : 'groupe'}
@@ -181,7 +222,7 @@
     padding-bottom: 0.65rem;
     display: flex;
     flex-direction: column;
-    gap: 0.65rem;
+    gap: 0.6rem;
   }
 
   .ligne-principale {
@@ -229,7 +270,6 @@
     border-color: var(--hf-red);
   }
 
-  /* Masque la croix native de type="search" pour utiliser la nôtre */
   .champ-recherche input::-webkit-search-cancel-button {
     -webkit-appearance: none;
     appearance: none;
@@ -376,6 +416,41 @@
     display: grid;
   }
 
+  .chips-ligne {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .chips-ligne.ouvert {
+    display: flex;
+  }
+
+  .chip {
+    padding: 0.35rem 0.7rem;
+    background-color: var(--hf-bg);
+    border: 1px solid var(--hf-border);
+    color: var(--hf-muted);
+    font-size: 0.76rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .chip:hover {
+    color: var(--hf-text);
+    border-color: #404040;
+  }
+
+  .chip.actif {
+    background-color: rgba(214, 41, 41, 0.15);
+    border-color: var(--hf-red);
+    color: var(--hf-text);
+    font-weight: 600;
+  }
+
   .ligne-statut {
     display: flex;
     align-items: center;
@@ -418,12 +493,16 @@
     }
 
     .select-tri {
-      width: 210px;
+      width: 215px;
     }
 
     .grille-filtres {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .chips-ligne {
+      display: flex;
     }
   }
 </style>

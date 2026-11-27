@@ -1,9 +1,28 @@
 <script>
   import BoutonsEcoute from './BoutonsEcoute.svelte';
+  import Etoiles from './Etoiles.svelte';
   import { nomPays, drapeau, joliStyle, formatDateCourte } from './lineup.js';
+  import {
+    session,
+    avis,
+    modifier,
+    UTILISATEURS,
+    LONGUEUR_MAX_COMMENTAIRE,
+  } from './notes.svelte.js';
 
   /** @type {{ groupes: import('./lineup.js').Groupe[] }} */
   let { groupes } = $props();
+
+  /** @type {string | null} */
+  let commentaireOuvertSlug = $state(null);
+
+  const moi = $derived(session.utilisateur);
+  const autre = $derived(/** @type {import('./notes.svelte.js').UtilisateurId} */ (moi === 'mcchouffe' ? 'jc' : 'mcchouffe'));
+
+  /** @param {string} slug */
+  function basculerCommentaire(slug) {
+    commentaireOuvertSlug = commentaireOuvertSlug === slug ? null : slug;
+  }
 </script>
 
 <div class="tableau-wrap">
@@ -14,7 +33,10 @@
           <th>Groupe &amp; Style</th>
           <th>Scène &amp; Jour</th>
           <th>Pays</th>
-          <th class="col-droite">Écouter</th>
+          {#if moi}
+            <th>{UTILISATEURS[moi]}</th>
+          {/if}
+          <th class="col-droite">Avis &amp; Écoute</th>
         </tr>
       </thead>
       <tbody>
@@ -22,6 +44,10 @@
           {@const paysNom = nomPays(g.pays)}
           {@const paysDrapeau = drapeau(g.pays)}
           {@const styleTexte = joliStyle(g.style)}
+          {@const monAvis = avis(moi, g.slug)}
+          {@const sonAvis = avis(autre, g.slug)}
+          {@const aCommentaire = Boolean(monAvis.commentaire.trim() || sonAvis.commentaire.trim())}
+          {@const ouvert = commentaireOuvertSlug === g.slug}
           <tr>
             <td class="col-groupe">
               <div class="groupe-nom font-display">{g.nom}</div>
@@ -48,10 +74,76 @@
                 <span class="muet">—</span>
               {/if}
             </td>
+            {#if moi}
+              <td class="col-note">
+                <div class="note-cellule">
+                  <Etoiles
+                    valeur={monAvis.note}
+                    compact
+                    ariaLabel={`Note de ${UTILISATEURS[moi]} pour ${g.nom}`}
+                    onchange={(n) => modifier(g.slug, { note: n })}
+                  />
+                  <button
+                    type="button"
+                    class="coeur-mini"
+                    class:actif={monAvis.coeur}
+                    aria-pressed={monAvis.coeur}
+                    aria-label={`Coup de cœur pour ${g.nom}`}
+                    onclick={() => modifier(g.slug, { coeur: !monAvis.coeur })}
+                  >
+                    {monAvis.coeur ? '♥' : '♡'}
+                  </button>
+                </div>
+              </td>
+            {/if}
             <td class="col-droite col-ecoute">
-              <BoutonsEcoute nom={g.nom} />
+              <div class="actions-droite">
+                {#if moi}
+                  <button
+                    type="button"
+                    class="btn-avis-tab"
+                    class:ouvert
+                    class:rempli={aCommentaire}
+                    onclick={() => basculerCommentaire(g.slug)}
+                  >
+                    💬{aCommentaire ? ' •' : ''}
+                  </button>
+                {/if}
+                <BoutonsEcoute nom={g.nom} />
+              </div>
             </td>
           </tr>
+
+          {#if moi && ouvert}
+            <tr class="ligne-commentaire">
+              <td colspan="5">
+                <div class="commentaire-box">
+                  <div class="commentaire-entete">
+                    <span class="font-display">Commentaire ({UTILISATEURS[moi]})</span>
+                    <span class="compteur-chars">
+                      {monAvis.commentaire.length}/{LONGUEUR_MAX_COMMENTAIRE}
+                    </span>
+                  </div>
+                  <textarea
+                    rows="2"
+                    maxlength={LONGUEUR_MAX_COMMENTAIRE}
+                    placeholder="Mon commentaire..."
+                    value={monAvis.commentaire}
+                    oninput={(e) => modifier(g.slug, { commentaire: e.currentTarget.value })}
+                  ></textarea>
+
+                  {#if sonAvis.note || sonAvis.coeur || sonAvis.commentaire}
+                    <div class="son-avis-tab">
+                      <strong>{UTILISATEURS[autre]} :</strong>
+                      {#if sonAvis.note > 0}<span>{sonAvis.note}/5 ★</span>{/if}
+                      {#if sonAvis.coeur}<span class="coeur-rouge">♥</span>{/if}
+                      {#if sonAvis.commentaire}<span>{sonAvis.commentaire}</span>{/if}
+                    </div>
+                  {/if}
+                </div>
+              </td>
+            </tr>
+          {/if}
         {/each}
       </tbody>
     </table>
@@ -100,7 +192,7 @@
     border-bottom: none;
   }
 
-  .tableau tbody tr:hover {
+  .tableau tbody tr:not(.ligne-commentaire):hover {
     background-color: var(--hf-elevated);
   }
 
@@ -110,7 +202,7 @@
   }
 
   .col-groupe {
-    min-width: 210px;
+    min-width: 190px;
   }
 
   .groupe-nom {
@@ -168,7 +260,10 @@
     max-width: 46ch;
   }
 
-  .col-scene {
+  .col-scene,
+  .col-pays,
+  .col-note,
+  .col-ecoute {
     white-space: nowrap;
   }
 
@@ -191,7 +286,6 @@
   }
 
   .col-pays {
-    white-space: nowrap;
     font-size: 0.8rem;
     color: var(--hf-muted);
   }
@@ -200,11 +294,120 @@
     color: var(--hf-subtle);
   }
 
+  .note-cellule {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .coeur-mini {
+    min-width: 34px;
+    min-height: 36px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--hf-subtle);
+    font-size: 1.05rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .coeur-mini:hover {
+    color: var(--hf-text);
+  }
+
+  .coeur-mini.actif {
+    color: var(--hf-red);
+  }
+
   .col-droite {
     text-align: right;
   }
 
-  .col-ecoute {
-    white-space: nowrap;
+  .actions-droite {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .btn-avis-tab {
+    height: 44px;
+    min-width: 44px;
+    padding: 0 0.6rem;
+    background-color: var(--hf-bg);
+    border: 1px solid var(--hf-border);
+    color: var(--hf-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .btn-avis-tab.rempli {
+    color: var(--hf-text);
+    border-color: #444444;
+  }
+
+  .btn-avis-tab.ouvert {
+    background-color: rgba(214, 41, 41, 0.15);
+    border-color: var(--hf-red);
+    color: var(--hf-text);
+  }
+
+  .ligne-commentaire {
+    background-color: var(--hf-bg);
+  }
+
+  .commentaire-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-width: 680px;
+  }
+
+  .commentaire-entete {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    color: var(--hf-muted);
+  }
+
+  .compteur-chars {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.7rem;
+    color: var(--hf-subtle);
+  }
+
+  .commentaire-box textarea {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    background-color: var(--hf-surface);
+    border: 1px solid var(--hf-border);
+    color: var(--hf-text);
+    font-size: 0.82rem;
+    font-family: inherit;
+    resize: vertical;
+  }
+
+  .commentaire-box textarea:focus {
+    outline: none;
+    border-color: var(--hf-red);
+  }
+
+  .son-avis-tab {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.78rem;
+    color: #c8c8c8;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--hf-border);
+  }
+
+  .coeur-rouge {
+    color: var(--hf-red);
   }
 </style>
