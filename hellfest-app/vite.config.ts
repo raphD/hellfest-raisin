@@ -8,6 +8,11 @@ export default defineConfig({
     // Remove this `apply` property to enable devtools for build as well
     apply: 'serve',
   },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:8787',
+    },
+  },
   plugins: [
     svelte(),
     VitePWA({

@@ -8,7 +8,9 @@
     session,
     notes,
     avis,
+    etatSynchro,
     chargerNotes,
+    synchroniser,
     seDeconnecter,
     exporterNotes,
     UTILISATEURS,
@@ -44,8 +46,11 @@
   let vue = $state('cartes');
 
   $effect(() => {
-    void chargerNotes();
+    const u = session.utilisateur;
     void navigator.storage?.persist?.();
+    void chargerNotes().then(() => {
+      if (u) void synchroniser();
+    });
   });
 
   $effect(() => {
@@ -84,6 +89,11 @@
   );
   const pctNotes = $derived(
     groupes.length > 0 ? Math.round((nbNotes / groupes.length) * 100) : 0
+  );
+  const heureSynchro = $derived(
+    etatSynchro.derniere
+      ? etatSynchro.derniere.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+      : null
   );
 
   const styles = $derived(
@@ -227,15 +237,37 @@
             </div>
           </div>
 
-          <div class="session-bloc">
-            <svg class="crabe-session" aria-hidden="true"><use href={monCrabe} /></svg>
-            <span class="session-texte">
-              Connecté : <strong>{UTILISATEURS[moi]}</strong>
-            </span>
-            <span class="sep" aria-hidden="true">·</span>
-            <button type="button" class="btn-changer" onclick={seDeconnecter}>
-              changer
-            </button>
+          <div class="entete-actions">
+            <div class="synchro-bloc">
+              <button
+                type="button"
+                class="btn-synchro"
+                class:en-cours={etatSynchro.enCours}
+                class:en-erreur={Boolean(etatSynchro.erreur)}
+                disabled={etatSynchro.enCours}
+                onclick={() => synchroniser()}
+                title={etatSynchro.erreur ?? (heureSynchro ? `Dernière synchro à ${heureSynchro}` : 'Synchroniser avec le serveur')}
+              >
+                <span class="icone-synchro" aria-hidden="true">🔄</span>
+                <span>{etatSynchro.enCours ? 'Synchro...' : 'Synchroniser'}</span>
+              </button>
+              {#if etatSynchro.erreur}
+                <span class="synchro-meta synchro-erreur" role="status">{etatSynchro.erreur}</span>
+              {:else if heureSynchro}
+                <span class="synchro-meta" role="status">À jour ({heureSynchro})</span>
+              {/if}
+            </div>
+
+            <div class="session-bloc">
+              <svg class="crabe-session" aria-hidden="true"><use href={monCrabe} /></svg>
+              <span class="session-texte">
+                Connecté : <strong>{UTILISATEURS[moi]}</strong>
+              </span>
+              <span class="sep" aria-hidden="true">·</span>
+              <button type="button" class="btn-changer" onclick={seDeconnecter}>
+                changer
+              </button>
+            </div>
           </div>
         </div>
 
@@ -357,7 +389,7 @@
       <div class="conteneur pied-interieur">
         <div class="pied-info">
           <span class="font-display pied-marque">HELLFEST 2027 • MCCHOUFFE &amp; JC</span>
-          <span>— Notes enregistrées en local (hors ligne)</span>
+          <span>— Notes en local (hors ligne) + synchro Cloudflare KV</span>
         </div>
         <div class="pied-actions">
           <button type="button" class="btn-pied" onclick={exporterNotes}>
@@ -444,6 +476,77 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--hf-muted);
+  }
+
+  .entete-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .synchro-bloc {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .btn-synchro {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 36px;
+    padding: 0 0.75rem;
+    background-color: var(--hf-surface);
+    border: 1px solid var(--hf-border);
+    color: var(--hf-text);
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+  }
+
+  .btn-synchro:hover:not(:disabled) {
+    background-color: var(--hf-elevated);
+    border-color: var(--hf-red);
+  }
+
+  .btn-synchro:disabled {
+    opacity: 0.65;
+    cursor: wait;
+  }
+
+  .btn-synchro.en-erreur {
+    border-color: var(--hf-red);
+  }
+
+  .icone-synchro {
+    display: inline-block;
+    line-height: 1;
+  }
+
+  .btn-synchro.en-cours .icone-synchro {
+    animation: rotation 0.9s linear infinite;
+  }
+
+  @keyframes rotation {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .synchro-meta {
+    font-size: 0.72rem;
+    color: var(--hf-muted);
+  }
+
+  .synchro-erreur {
+    color: #ff8a8a;
   }
 
   .session-bloc {

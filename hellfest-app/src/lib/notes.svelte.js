@@ -1,4 +1,6 @@
 import { get, set } from 'idb-keyval';
+import { fusionner } from './fusion.js';
+import { lireNotes, envoyerNotes } from './api.js';
 
 /**
  * @typedef {'mcchouffe' | 'jc'} UtilisateurId
@@ -28,11 +30,19 @@ function lireUtilisateur(valeur) {
   return valeur === 'mcchouffe' || valeur === 'jc' ? valeur : null;
 }
 
-// Qui utilise ce téléphone, et le code secret (servira en phase 5)
+// Qui utilise ce téléphone, et le code secret (envoyé dans X-App-Secret)
 export const session = $state({
   /** @type {UtilisateurId | null} */
   utilisateur: lireUtilisateur(localStorage.getItem('utilisateur')),
   secret: localStorage.getItem('secret') ?? '',
+});
+
+export const etatSynchro = $state({
+  enCours: false,
+  /** @type {string | null} */
+  erreur: null,
+  /** @type {Date | null} */
+  derniere: null,
 });
 
 /**
@@ -42,6 +52,7 @@ export const session = $state({
 export function seConnecter(utilisateur, secret) {
   session.utilisateur = utilisateur;
   session.secret = secret;
+  etatSynchro.erreur = null;
   localStorage.setItem('utilisateur', utilisateur);
   localStorage.setItem('secret', secret);
 }
@@ -53,30 +64,35 @@ export function seDeconnecter() {
     void enregistrer();
   }
   session.utilisateur = null;
+  etatSynchro.erreur = null;
+  etatSynchro.derniere = null;
   localStorage.removeItem('utilisateur');
 }
 
 // Notes des deux utilisateurs : { mcchouffe: { slug: {...} }, jc: { slug: {...} } }
-// Celles de l'autre resteront vides jusqu'à la synchro (phase 6), sauf test local des 2 profils
 /** @type {Record<UtilisateurId, Record<string, Avis>>} */
 export const notes = $state({
   mcchouffe: {},
   jc: {},
 });
 
-let dejaCharge = false;
+/** @type {Promise<void> | null} */
+let promesseChargement = null;
 
-export async function chargerNotes() {
-  if (dejaCharge) return;
-  dejaCharge = true;
-  /** @type {UtilisateurId[]} */
-  const ids = ['mcchouffe', 'jc'];
-  for (const u of ids) {
-    const donnees = await get(`notes-${u}`);
-    if (donnees && typeof donnees === 'object') {
-      notes[u] = donnees;
-    }
+export function chargerNotes() {
+  if (!promesseChargement) {
+    promesseChargement = (async () => {
+      /** @type {UtilisateurId[]} */
+      const ids = ['mcchouffe', 'jc'];
+      for (const u of ids) {
+        const donnees = await get(`notes-${u}`);
+        if (donnees && typeof donnees === 'object') {
+          notes[u] = donnees;
+        }
+      }
+    })();
   }
+  return promesseChargement;
 }
 
 /** @type {Readonly<Avis>} */
@@ -99,7 +115,7 @@ let minuterie;
 let utilisateurAEnregistrer = null;
 
 /**
- * Modifie mon avis sur un groupe, puis enregistre 500 ms après la dernière modification.
+ * Modifie mon avis sur un groupe, puis enregistre en local 500 ms après la dernière modification.
  * @param {string} slug
  * @param {Partial<Avis>} champs
  */
@@ -128,6 +144,44 @@ export async function enregistrer() {
   utilisateurAEnregistrer = null;
   // $state.snapshot : IndexedDB ne sait pas enregistrer les objets réactifs de Svelte
   await set(`notes-${u}`, $state.snapshot(notes[u]));
+}
+
+/**
+ * Synchronisation manuelle avec le serveur Cloudflare Workers KV :
+ * 1. Récupère les notes des deux utilisateurs
+ * 2. Fusionne les miennes (local + serveur, le plus récent gagne) et reprend celles de l'autre
+ * 3. Envoie ma version fusionnée et conserve la réponse du serveur
+ * 4. Enregistre le tout dans IndexedDB pour le hors ligne
+ */
+export async function synchroniser() {
+  const moi = session.utilisateur;
+  if (!moi || etatSynchro.enCours) return;
+  /** @type {UtilisateurId} */
+  const autre = moi === 'mcchouffe' ? 'jc' : 'mcchouffe';
+
+  etatSynchro.enCours = true;
+  etatSynchro.erreur = null;
+  try {
+    await chargerNotes();
+    if (minuterie) {
+      clearTimeout(minuterie);
+      minuterie = undefined;
+      await enregistrer();
+    }
+
+    const serveur = await lireNotes(session.secret);
+    notes[moi] = fusionner($state.snapshot(notes[moi]), serveur[moi]);
+    notes[autre] = serveur[autre] ?? {};
+    notes[moi] = await envoyerNotes(session.secret, moi, $state.snapshot(notes[moi]));
+
+    await set(`notes-${moi}`, $state.snapshot(notes[moi]));
+    await set(`notes-${autre}`, $state.snapshot(notes[autre]));
+    etatSynchro.derniere = new Date();
+  } catch (e) {
+    etatSynchro.erreur = e instanceof Error ? e.message : 'Erreur de synchronisation';
+  } finally {
+    etatSynchro.enCours = false;
+  }
 }
 
 /**

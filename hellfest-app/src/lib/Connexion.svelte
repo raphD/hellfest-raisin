@@ -1,15 +1,30 @@
 <script>
   import { session, seConnecter, UTILISATEURS } from './notes.svelte.js';
+  import { verifierSecret } from './api.js';
 
   /** @type {import('./notes.svelte.js').UtilisateurId | null} */
   let choix = $state(null);
   let secret = $state(session.secret);
+  let verification = $state(false);
+  /** @type {string | null} */
+  let erreur = $state(null);
 
   /** @param {SubmitEvent} e */
-  function valider(e) {
+  async function valider(e) {
     e.preventDefault();
-    if (!choix) return;
-    seConnecter(choix, secret.trim());
+    const code = secret.trim();
+    if (!choix || !code || verification) return;
+
+    verification = true;
+    erreur = null;
+    try {
+      await verifierSecret(code);
+      seConnecter(choix, code);
+    } catch (err) {
+      erreur = err instanceof Error ? err.message : 'Code secret incorrect';
+    } finally {
+      verification = false;
+    }
   }
 </script>
 
@@ -59,23 +74,32 @@
 
       <div class="champ-bloc">
         <label for="champ-secret" class="label-section font-display">
-          Code secret partagé <span class="optionnel">(optionnel pour l'instant)</span>
+          Code secret partagé
         </label>
         <input
           id="champ-secret"
           type="password"
           bind:value={secret}
+          required
           autocomplete="current-password"
-          placeholder="Sera utilisé pour la synchro en phase 5"
+          placeholder="Saisis le code choisi entre McChouffe & JC"
           class="champ-texte"
         />
         <p class="aide">
-          Mémorisé uniquement sur cet appareil. Tes notes sont enregistrées en local et fonctionnent hors ligne.
+          Vérifié auprès du serveur et mémorisé uniquement sur cet appareil.
         </p>
       </div>
 
-      <button type="submit" class="btn-valider font-display" disabled={!choix}>
-        C'est parti
+      {#if erreur}
+        <p class="message-erreur" role="alert">{erreur}</p>
+      {/if}
+
+      <button
+        type="submit"
+        class="btn-valider font-display"
+        disabled={!choix || !secret.trim() || verification}
+      >
+        {verification ? 'Vérification...' : "C'est parti"}
       </button>
     </form>
   </section>
@@ -169,15 +193,6 @@
     color: var(--hf-text);
   }
 
-  .optionnel {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.72rem;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: normal;
-    color: var(--hf-muted);
-  }
-
   .choix-profils {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -247,6 +262,15 @@
     font-size: 0.74rem;
     line-height: 1.45;
     color: var(--hf-muted);
+  }
+
+  .message-erreur {
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    background-color: rgba(214, 41, 41, 0.12);
+    border: 1px solid var(--hf-red);
+    color: #ff8a8a;
+    font-size: 0.8rem;
   }
 
   .btn-valider {
