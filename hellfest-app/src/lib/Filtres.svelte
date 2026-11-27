@@ -1,4 +1,5 @@
 <script>
+  import IndicateurSynchro from './IndicateurSynchro.svelte';
   import { JOURS, LIBELLES_JOURS_COURTS, SCENES, drapeau, joliStyle } from './lineup.js';
 
   /**
@@ -192,17 +193,21 @@
       </button>
     </div>
 
-    <!-- Ligne 4 : Compteur + Réinitialiser -->
+    <!-- Ligne 4 : Compteur + Réinitialiser + Indicateur de synchro (toujours visible en haut) -->
     <div class="ligne-statut">
-      <span class="compteur">
-        <strong>{nbResultats}</strong> / {total} {nbResultats > 1 ? 'groupes' : 'groupe'}
-      </span>
+      <div class="statut-gauche">
+        <span class="compteur">
+          <strong>{nbResultats}</strong> / {total} {nbResultats > 1 ? 'groupes' : 'groupe'}
+        </span>
 
-      {#if aDesFiltres}
-        <button type="button" class="btn-reset" onclick={onReinitialiser}>
-          Réinitialiser les filtres
-        </button>
-      {/if}
+        {#if aDesFiltres}
+          <button type="button" class="btn-reset" onclick={onReinitialiser}>
+            Réinitialiser
+          </button>
+        {/if}
+      </div>
+
+      <IndicateurSynchro />
     </div>
   </div>
 </section>
@@ -453,13 +458,20 @@
 
   .ligne-statut {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
     font-size: 0.76rem;
     color: var(--hf-muted);
     padding-top: 0.45rem;
     border-top: 1px solid rgba(42, 42, 42, 0.65);
+  }
+
+  .statut-gauche {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
   }
 
   .compteur strong {

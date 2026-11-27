@@ -1,6 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { fusionner } from './fusion.js';
-import { lireNotes, envoyerNotes } from './api.js';
+import { signalerModification } from './synchro.svelte.js';
 
 /**
  * @typedef {'mcchouffe' | 'jc'} UtilisateurId
@@ -37,14 +36,6 @@ export const session = $state({
   secret: localStorage.getItem('secret') ?? '',
 });
 
-export const etatSynchro = $state({
-  enCours: false,
-  /** @type {string | null} */
-  erreur: null,
-  /** @type {Date | null} */
-  derniere: null,
-});
-
 /**
  * @param {UtilisateurId} utilisateur
  * @param {string} secret
@@ -52,7 +43,6 @@ export const etatSynchro = $state({
 export function seConnecter(utilisateur, secret) {
   session.utilisateur = utilisateur;
   session.secret = secret;
-  etatSynchro.erreur = null;
   localStorage.setItem('utilisateur', utilisateur);
   localStorage.setItem('secret', secret);
 }
@@ -64,8 +54,6 @@ export function seDeconnecter() {
     void enregistrer();
   }
   session.utilisateur = null;
-  etatSynchro.erreur = null;
-  etatSynchro.derniere = null;
   localStorage.removeItem('utilisateur');
 }
 
@@ -115,7 +103,8 @@ let minuterie;
 let utilisateurAEnregistrer = null;
 
 /**
- * Modifie mon avis sur un groupe, puis enregistre en local 500 ms après la dernière modification.
+ * Modifie mon avis sur un groupe, puis enregistre en local 500 ms après la dernière modification
+ * et signale le groupe à la file de synchro automatique.
  * @param {string} slug
  * @param {Partial<Avis>} champs
  */
@@ -130,6 +119,7 @@ export function modifier(slug, champs) {
     ...champs,
     maj: new Date().toISOString(),
   };
+  signalerModification(slug);
   utilisateurAEnregistrer = u;
   clearTimeout(minuterie);
   minuterie = setTimeout(() => {
@@ -144,44 +134,6 @@ export async function enregistrer() {
   utilisateurAEnregistrer = null;
   // $state.snapshot : IndexedDB ne sait pas enregistrer les objets réactifs de Svelte
   await set(`notes-${u}`, $state.snapshot(notes[u]));
-}
-
-/**
- * Synchronisation manuelle avec le serveur Cloudflare Workers KV :
- * 1. Récupère les notes des deux utilisateurs
- * 2. Fusionne les miennes (local + serveur, le plus récent gagne) et reprend celles de l'autre
- * 3. Envoie ma version fusionnée et conserve la réponse du serveur
- * 4. Enregistre le tout dans IndexedDB pour le hors ligne
- */
-export async function synchroniser() {
-  const moi = session.utilisateur;
-  if (!moi || etatSynchro.enCours) return;
-  /** @type {UtilisateurId} */
-  const autre = moi === 'mcchouffe' ? 'jc' : 'mcchouffe';
-
-  etatSynchro.enCours = true;
-  etatSynchro.erreur = null;
-  try {
-    await chargerNotes();
-    if (minuterie) {
-      clearTimeout(minuterie);
-      minuterie = undefined;
-      await enregistrer();
-    }
-
-    const serveur = await lireNotes(session.secret);
-    notes[moi] = fusionner($state.snapshot(notes[moi]), serveur[moi]);
-    notes[autre] = serveur[autre] ?? {};
-    notes[moi] = await envoyerNotes(session.secret, moi, $state.snapshot(notes[moi]));
-
-    await set(`notes-${moi}`, $state.snapshot(notes[moi]));
-    await set(`notes-${autre}`, $state.snapshot(notes[autre]));
-    etatSynchro.derniere = new Date();
-  } catch (e) {
-    etatSynchro.erreur = e instanceof Error ? e.message : 'Erreur de synchronisation';
-  } finally {
-    etatSynchro.enCours = false;
-  }
 }
 
 /**
