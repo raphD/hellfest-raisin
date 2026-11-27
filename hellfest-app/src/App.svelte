@@ -1,9 +1,16 @@
 <script>
   import Mascottes from './lib/Mascottes.svelte';
   import Connexion from './lib/Connexion.svelte';
+  import Onglets from './lib/Onglets.svelte';
+  import IndicateurSynchro from './lib/IndicateurSynchro.svelte';
   import Filtres from './lib/Filtres.svelte';
   import CarteGroupe from './lib/CarteGroupe.svelte';
   import TableauGroupes from './lib/TableauGroupes.svelte';
+  import VueAvancement from './lib/VueAvancement.svelte';
+  import VueTop from './lib/VueTop.svelte';
+  import VueCoeurs from './lib/VueCoeurs.svelte';
+  import VueDesaccords from './lib/VueDesaccords.svelte';
+  import VueRattraper from './lib/VueRattraper.svelte';
   import {
     session,
     notes,
@@ -12,8 +19,10 @@
     seDeconnecter,
     exporterNotes,
     UTILISATEURS,
+    autreUtilisateur,
   } from './lib/notes.svelte.js';
   import { demarrerSynchro, arreterSynchro } from './lib/synchro.svelte.js';
+  import { coeurs, desaccords, aRattraper } from './lib/stats.js';
   import {
     JOURS,
     LIBELLES_JOURS,
@@ -24,13 +33,21 @@
     joliStyle,
   } from './lib/lineup.js';
 
+  const VUES = ['tous', 'avancement', 'top', 'coeurs', 'desaccords', 'rattraper'];
+  const vueDepuisAdresse = () => {
+    const hash = typeof location !== 'undefined' ? location.hash.slice(1) : '';
+    return VUES.includes(hash) ? hash : 'tous';
+  };
+
+  let vue = $state(vueDepuisAdresse());
+
   /** @type {import('./lib/lineup.js').Groupe[]} */
   let groupes = $state([]);
   let chargement = $state(true);
   /** @type {string | null} */
   let erreur = $state(null);
 
-  // État des filtres et du tri
+  // État des filtres et du tri (vue « Tous »)
   let recherche = $state('');
   let jour = $state('');
   let scene = $state('');
@@ -42,7 +59,19 @@
   /** @type {'affiche' | 'nom' | 'note'} */
   let tri = $state('affiche');
   /** @type {'cartes' | 'tableau'} */
-  let vue = $state('cartes');
+  let affichage = $state('cartes');
+
+  $effect(() => {
+    const majVue = () => {
+      const nouvelle = vueDepuisAdresse();
+      if (nouvelle !== vue) {
+        vue = nouvelle;
+        window.scrollTo({ top: 0 });
+      }
+    };
+    window.addEventListener('hashchange', majVue);
+    return () => window.removeEventListener('hashchange', majVue);
+  });
 
   $effect(() => {
     const u = session.utilisateur;
@@ -83,7 +112,7 @@
   });
 
   const moi = $derived(session.utilisateur);
-  const autre = $derived(/** @type {import('./lib/notes.svelte.js').UtilisateurId} */ (moi === 'mcchouffe' ? 'jc' : 'mcchouffe'));
+  const autre = $derived(autreUtilisateur(moi));
   const monCrabe = $derived(moi === 'mcchouffe' ? '#crab-mcchouffe' : '#crab-jc');
 
   // Avancement de l'utilisateur courant
@@ -96,6 +125,16 @@
   const pctNotes = $derived(
     groupes.length > 0 ? Math.round((nbNotes / groupes.length) * 100) : 0
   );
+
+  // Compteurs des badges sur les onglets à deux
+  const compteursOnglets = $derived.by(() => {
+    if (!moi || groupes.length === 0) return {};
+    return {
+      coeurs: coeurs(groupes, notes[moi], notes[autre]).communs.length,
+      desaccords: desaccords(groupes, notes[moi], notes[autre]).length,
+      rattraper: aRattraper(groupes, notes[moi], notes[autre]).length,
+    };
+  });
 
   const styles = $derived(
     [...new Set(groupes.map((g) => g.style).filter(/** @returns {s is string} */ (s) => Boolean(s)))].sort(
@@ -257,8 +296,8 @@
           </div>
         </div>
 
-        <!-- Bandeau d'avancement -->
-        <div class="avancement-boite">
+        <!-- Bandeau d'avancement rapide (cliquable vers l'onglet Avancement) -->
+        <a href="#avancement" class="avancement-boite">
           <div class="avancement-texte">
             <span class="font-display avancement-nom">
               {UTILISATEURS[moi]} : <strong>{nbNotes} / {groupes.length}</strong> notés ({pctNotes}%)
@@ -267,31 +306,50 @@
               <span class="avancement-coeurs">♥ {nbCoeurs}</span>
             {/if}
           </div>
-          <div class="barre-fond" role="progressbar" aria-valuenow={pctNotes} aria-valuemin={0} aria-valuemax={100} aria-label="Avancement des écoutes">
+          <div
+            class="barre-fond"
+            role="progressbar"
+            aria-valuenow={pctNotes}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Avancement des écoutes"
+          >
             <div class="barre-remplie" style:width={`${pctNotes}%`}></div>
           </div>
-        </div>
+        </a>
       </div>
     </header>
 
-    <!-- BARRE COLLANTE DE RECHERCHE, FILTRES ET TRI -->
-    <Filtres
-      bind:recherche
-      bind:jour
-      bind:scene
-      bind:style
-      bind:pays
-      bind:nonNote
-      bind:coupsDeCoeur
-      bind:commente
-      bind:tri
-      bind:vue
-      {styles}
-      {listePays}
-      total={groupes.length}
-      nbResultats={filtres.length}
-      onReinitialiser={reinitialiserFiltres}
-    />
+    <!-- NAVIGATION PAR ONGLETS (en bas sur mobile, sous l'en-tête sur desktop) -->
+    <Onglets {vue} compteurs={compteursOnglets} />
+
+    <!-- BARRE COLLANTE : filtres + synchro sur « Tous », synchro seule sur les autres vues -->
+    {#if vue === 'tous'}
+      <Filtres
+        bind:recherche
+        bind:jour
+        bind:scene
+        bind:style
+        bind:pays
+        bind:nonNote
+        bind:coupsDeCoeur
+        bind:commente
+        bind:tri
+        bind:vue={affichage}
+        {styles}
+        {listePays}
+        total={groupes.length}
+        nbResultats={filtres.length}
+        onReinitialiser={reinitialiserFiltres}
+      />
+    {:else}
+      <div class="barre-synchro-collante">
+        <div class="conteneur barre-synchro-interieur">
+          <a href="#tous" class="retour-tous">← Retour au line-up</a>
+          <IndicateurSynchro />
+        </div>
+      </div>
+    {/if}
 
     <!-- CONTENU PRINCIPAL -->
     <main class="conteneur contenu-principal">
@@ -304,6 +362,16 @@
           <h2 class="font-display etat-titre">Erreur de chargement</h2>
           <p class="etat-texte">{erreur}</p>
         </div>
+      {:else if vue === 'avancement'}
+        <VueAvancement {groupes} />
+      {:else if vue === 'top'}
+        <VueTop {groupes} />
+      {:else if vue === 'coeurs'}
+        <VueCoeurs {groupes} />
+      {:else if vue === 'desaccords'}
+        <VueDesaccords {groupes} />
+      {:else if vue === 'rattraper'}
+        <VueRattraper {groupes} />
       {:else if filtres.length === 0}
         <div class="etat-boite">
           <h2 class="font-display etat-titre">Aucun groupe trouvé</h2>
@@ -312,7 +380,7 @@
             Réinitialiser les filtres
           </button>
         </div>
-      {:else if vue === 'tableau'}
+      {:else if affichage === 'tableau'}
         <TableauGroupes groupes={listeTriee} />
       {:else if tri !== 'affiche'}
         <div class="grille-cartes">
@@ -395,6 +463,13 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    padding-bottom: 4rem;
+  }
+
+  @media (min-width: 768px) {
+    .page {
+      padding-bottom: 0;
+    }
   }
 
   .entete {
@@ -513,6 +588,12 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .avancement-boite:hover {
+    border-color: #404040;
   }
 
   .avancement-texte {
@@ -550,6 +631,36 @@
     height: 100%;
     background-color: var(--hf-red);
     transition: width 0.25s ease;
+  }
+
+  .barre-synchro-collante {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background-color: rgba(14, 14, 14, 0.96);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--hf-border);
+  }
+
+  .barre-synchro-interieur {
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+  }
+
+  .retour-tous {
+    font-size: 0.78rem;
+    color: var(--hf-muted);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .retour-tous:hover {
+    color: var(--hf-text);
   }
 
   .contenu-principal {

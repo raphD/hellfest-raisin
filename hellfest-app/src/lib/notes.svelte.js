@@ -22,6 +22,13 @@ export const UTILISATEURS = {
 export const LONGUEUR_MAX_COMMENTAIRE = 500;
 
 /**
+ * Renvoie l'identifiant de l'autre utilisateur du duo.
+ * @param {UtilisateurId | null | undefined} u
+ * @returns {UtilisateurId}
+ */
+export const autreUtilisateur = (u) => (u === 'mcchouffe' ? 'jc' : 'mcchouffe');
+
+/**
  * @param {string | null} valeur
  * @returns {UtilisateurId | null}
  */
